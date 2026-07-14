@@ -105,7 +105,12 @@
       transition: background 0.08s; position: relative;
     }
     .tb-cell:hover { filter: brightness(0.94); }
-    .tb-cell.selecting { outline: 2px solid #1a1a1a; outline-offset: -1px; }
+    .tb-cell.selecting {
+      z-index: 2;
+      outline: 3px solid #1a1a1a;
+      outline-offset: -2px;
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,.9);
+    }
     .tb-label { font-size: 12px; font-weight: 500; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; }
 
     /* 블록 레이블 입력 팝업 */
@@ -675,12 +680,7 @@
     isDragging = false;
     if (selectedCells.length > 0) {
       const touch = e.changedTouches[0];
-      const isMobile = window.innerWidth <= 600;
-      if (isMobile) {
-        openPopup({clientX: window.innerWidth / 2, clientY: window.innerHeight * 0.4});
-      } else {
-        openPopup({clientX: touch.clientX, clientY: touch.clientY});
-      }
+      openPopup({clientX: touch.clientX, clientY: touch.clientY});
     }
   });
 
@@ -717,7 +717,6 @@
   /* ── 팝업 ── */
   function openPopup(e) {
     pendingCells = [...selectedCells];
-    clearSelecting();
 
     // 기존 블록 있으면 값 가져오기
     const existing = blocks[pendingCells[0]];
@@ -728,19 +727,38 @@
     const popup = document.getElementById('blockPopup');
     popup.classList.add('open');
 
-    // 위치 계산
+    // 선택 영역과 화면 여백을 기준으로 팝업을 아래 또는 위에 배치한다.
     const isMobile = window.innerWidth <= 600;
+    const margin = isMobile ? 16 : 12;
+    const gap = 8;
+    const selectedRects = pendingCells
+      .map(idx => document.querySelector(`.tb-cell[data-idx="${idx}"]`)?.getBoundingClientRect())
+      .filter(Boolean);
+    const selectionTop = selectedRects.length
+      ? Math.min(...selectedRects.map(rect => rect.top))
+      : e.clientY;
+    const selectionBottom = selectedRects.length
+      ? Math.max(...selectedRects.map(rect => rect.bottom))
+      : e.clientY;
+
     if (isMobile) {
-      popup.style.left = '16px';
-      popup.style.right = '16px';
+      popup.style.left = margin + 'px';
+      popup.style.right = margin + 'px';
       popup.style.width = 'auto';
-      popup.style.top = (window.scrollY + window.innerHeight / 2 - 100) + 'px';
     } else {
-      const x = Math.min(e.clientX + 8, window.innerWidth - 260);
-      const y = Math.min(e.clientY + 8, window.innerHeight - 200);
+      popup.style.right = 'auto';
+      popup.style.width = 'auto';
+      const x = Math.max(margin, Math.min(e.clientX + gap, window.innerWidth - popup.offsetWidth - margin));
       popup.style.left = x + 'px';
-      popup.style.top = y + window.scrollY + 'px';
     }
+
+    const popupHeight = popup.offsetHeight;
+    const fitsBelow = selectionBottom + gap + popupHeight <= window.innerHeight - margin;
+    const top = fitsBelow
+      ? selectionBottom + gap
+      : Math.max(margin, selectionTop - popupHeight - gap);
+    const maxTop = Math.max(margin, window.innerHeight - popupHeight - margin);
+    popup.style.top = Math.max(margin, Math.min(top, maxTop)) + 'px';
 
     setTimeout(() => document.getElementById('popupInput').focus(), 50);
   }
