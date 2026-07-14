@@ -104,6 +104,7 @@
       display: flex; align-items: center; padding: 0 8px;
       transition: background 0.08s; position: relative;
     }
+    .tb-cell.half-second { border-left: 1px dashed rgba(70,70,65,.36); }
     .tb-cell:hover { filter: brightness(0.94); }
     .tb-cell.selecting {
       z-index: 2;
@@ -355,7 +356,7 @@
     .timebox-header { margin: 0; min-height: 30px; align-items: flex-start; }
     .min-note { color: #4f4e48; font-size: 9px; margin: 4px 92px 0 0; }
     .timebox-hint { display: none; }
-    .tb-wrap { border: 1px solid #65655f; border-bottom: none; }
+    .tb-wrap { border: 1px solid #65655f; border-bottom-width: 1.5px; }
     .tb-row { min-height: 30px; border-bottom: 1px solid #65655f; }
     .tb-row.divider { display: none; }
     .tb-hour {
@@ -374,16 +375,7 @@
       border-radius: 0;
       overflow: hidden;
     }
-    .tb-cell::after {
-      content: '';
-      position: absolute;
-      z-index: 0;
-      top: 0;
-      bottom: 0;
-      left: 50%;
-      border-left: 1px dashed rgba(70,70,65,.36);
-      pointer-events: none;
-    }
+    .tb-cell.half-second { border-left: 1px dashed rgba(70,70,65,.36); }
     .tb-label {
       position: relative;
       z-index: 1;
@@ -537,12 +529,14 @@
     {h:7},{h:8},{h:9},{h:10},{h:11},null,
     {h:12},{h:1},{h:2},{h:3},{h:4},null,
     {h:5},{h:6},{h:7},{h:8},{h:9},{h:10},{h:11},null,
-    {h:12},{h:1},{h:2}
+    {h:12},{h:1},{h:2},{h:3},{h:4}
   ];
 
-  // 실제 셀 인덱스만 추출
+  // 각 시간 줄을 왼쪽(정각)과 오른쪽(30분)의 두 셀로 나눈다.
   const CELL_INDICES = [];
-  SLOTS.forEach((s, i) => { if (s !== null) CELL_INDICES.push(i); });
+  SLOTS.forEach((s, i) => {
+    if (s !== null) CELL_INDICES.push(i * 2, i * 2 + 1);
+  });
 
   // 블록 데이터: key = 셀 인덱스, value = {ci, text, groupId}
   let blocks = {};
@@ -581,27 +575,30 @@
         row.innerHTML = '<div style="width:22px;flex-shrink:0"></div><div class="tb-divline"></div>';
       } else {
         row.className = 'tb-row';
-        row.dataset.idx = idx;
 
         const hourEl = document.createElement('div');
         hourEl.className = 'tb-hour';
         hourEl.textContent = s.h;
-
-        const cell = document.createElement('div');
-        cell.className = 'tb-cell';
-        cell.dataset.idx = idx;
-        applyBlockStyle(cell, idx);
-
-        // 드래그 이벤트 (PC)
-        cell.addEventListener('mousedown', onCellMouseDown);
-        cell.addEventListener('mouseover', onCellMouseOver);
-        // 터치 이벤트 (모바일)
-        cell.addEventListener('touchstart', onTouchStart, {passive:false});
-        cell.addEventListener('touchmove', onTouchMove, {passive:false});
-        cell.addEventListener('click', onCellClick);
-
         row.appendChild(hourEl);
-        row.appendChild(cell);
+
+        for (let half = 0; half < 2; half++) {
+          const cellIdx = idx * 2 + half;
+          const cell = document.createElement('div');
+          cell.className = `tb-cell ${half === 1 ? 'half-second' : 'half-first'}`;
+          cell.dataset.idx = cellIdx;
+          cell.dataset.minutes = half === 0 ? '00' : '30';
+          applyBlockStyle(cell, cellIdx);
+
+          // 드래그 이벤트 (PC)
+          cell.addEventListener('mousedown', onCellMouseDown);
+          cell.addEventListener('mouseover', onCellMouseOver);
+          // 터치 이벤트 (모바일)
+          cell.addEventListener('touchstart', onTouchStart, {passive:false});
+          cell.addEventListener('touchmove', onTouchMove, {passive:false});
+          cell.addEventListener('click', onCellClick);
+
+          row.appendChild(cell);
+        }
       }
       wrap.appendChild(row);
     });
@@ -1021,6 +1018,7 @@
       routineDone.push(r.classList.contains('done'));
     });
     const data = {
+      storageVersion: 2,
       priorities,
       brainDump: document.querySelector('.brain-textarea').value,
       blocks,
@@ -1048,13 +1046,74 @@
     buildTimebox();
   }
 
+  function migrateTimeboxData(data) {
+    if (data.storageVersion >= 2) return data;
+
+    const legacyBlocks = data.blocks || {};
+    const legacyGroups = data.groups || {};
+    const migratedBlocks = {};
+    const migratedGroups = {};
+    const groupedLegacyCells = new Set();
+    const numericGroupIds = Object.keys(legacyGroups).map(Number).filter(Number.isFinite);
+    let nextGroup = Math.max(Number(data.groupCounter) || 0, 0, ...numericGroupIds);
+
+    Object.entries(legacyGroups).forEach(([gid, oldGroup]) => {
+      const legacyCells = Array.isArray(oldGroup.cells) ? oldGroup.cells : [];
+      const cells = legacyCells
+        .flatMap(oldIdx => [Number(oldIdx) * 2, Number(oldIdx) * 2 + 1])
+        .filter(idx => CELL_INDICES.includes(idx));
+      if (cells.length === 0) return;
+
+      legacyCells.forEach(idx => groupedLegacyCells.add(Number(idx)));
+      migratedGroups[gid] = {
+        ci: oldGroup.ci,
+        text: oldGroup.text || '',
+        cells
+      };
+      cells.forEach(idx => {
+        migratedBlocks[idx] = {
+          ci: oldGroup.ci,
+          text: oldGroup.text || '',
+          groupId: Number.isNaN(Number(gid)) ? gid : Number(gid)
+        };
+      });
+    });
+
+    // 그룹 정보가 없는 예전 블록도 한 시간짜리 두 칸으로 보존한다.
+    Object.entries(legacyBlocks).forEach(([oldIdxText, oldBlock]) => {
+      const oldIdx = Number(oldIdxText);
+      if (groupedLegacyCells.has(oldIdx)) return;
+      const cells = [oldIdx * 2, oldIdx * 2 + 1].filter(idx => CELL_INDICES.includes(idx));
+      if (cells.length === 0) return;
+      const gid = ++nextGroup;
+      migratedGroups[gid] = {
+        ci: oldBlock.ci,
+        text: oldBlock.text || '',
+        cells
+      };
+      cells.forEach(idx => {
+        migratedBlocks[idx] = {
+          ci: oldBlock.ci,
+          text: oldBlock.text || '',
+          groupId: gid
+        };
+      });
+    });
+
+    data.blocks = migratedBlocks;
+    data.groups = migratedGroups;
+    data.groupCounter = nextGroup;
+    data.storageVersion = 2;
+    return data;
+  }
+
   function loadFromStorage() {
     resetPlannerView();
     const key = getDateKey();
     const raw = localStorage.getItem(key);
     if (!raw) return;
     try {
-      const data = JSON.parse(raw);
+      const data = migrateTimeboxData(JSON.parse(raw));
       // 루틴 설정 복원
       if (data.routines) routines = data.routines;
       renderRoutines();
