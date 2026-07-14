@@ -135,6 +135,13 @@
     .popup-ok:hover { background: #333; }
     .popup-clear { font-size: 11px; color: #e07070; background: none; border: none; cursor: pointer; font-family: 'Helvetica Neue', sans-serif; padding: 6px 4px; }
     .popup-clear:hover { text-decoration: underline; }
+    .delete-choices { display: none; padding-top: 2px; }
+    .delete-choices.open { display: block; }
+    .delete-choice-title { margin-bottom: 8px; color: #55524c; font-size: 12px; font-weight: 700; text-align: center; }
+    .delete-choice-actions { display: flex; gap: 6px; }
+    .delete-choice-actions button { flex: 1; min-height: 34px; padding: 6px 8px; border: 1px solid #aaa69d; border-radius: 3px; background: #fffef8; color: #4c4a45; font-size: 11px; cursor: pointer; }
+    .delete-choice-actions button:hover { background: #f0ece3; }
+    .delete-choice-actions .delete-whole { border-color: #d79b97; color: #a13c36; }
 
     /* 푸터 */
     .planner-footer { border-top: 0.5px solid #d8d0c4; background: #f7f2eb; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; }
@@ -503,10 +510,18 @@
   <div class="popup-title">시간 블록 설정</div>
   <div class="popup-colors" id="popupColors"></div>
   <input class="popup-input" id="popupInput" type="text" placeholder="할 일 입력 (예: 독서, 운동...)" />
-  <div class="popup-btns">
-    <button class="popup-clear" onclick="clearBlock()">삭제</button>
+  <div class="popup-btns" id="popupActions">
+    <button class="popup-clear" onclick="showDeleteChoices()">삭제</button>
     <button class="popup-cancel" onclick="closePopup()">취소</button>
     <button class="popup-ok" onclick="applyBlock()">확인</button>
+  </div>
+  <div class="delete-choices" id="deleteChoices">
+    <div class="delete-choice-title">어느 범위를 삭제할까요?</div>
+    <div class="delete-choice-actions">
+      <button type="button" onclick="clearSelectedBlocks()">선택한 칸만</button>
+      <button type="button" class="delete-whole" onclick="clearWholeBlocks()">일정 전체</button>
+      <button type="button" onclick="hideDeleteChoices()">돌아가기</button>
+    </div>
   </div>
 </div>
 
@@ -714,6 +729,7 @@
   /* ── 팝업 ── */
   function openPopup(e) {
     pendingCells = [...selectedCells];
+    hideDeleteChoices();
 
     // 기존 블록 있으면 값 가져오기
     const existing = blocks[pendingCells[0]];
@@ -831,7 +847,23 @@
     closePopup();
   }
 
-  function clearBlock() {
+  function showDeleteChoices() {
+    document.getElementById('popupActions').style.display = 'none';
+    document.getElementById('deleteChoices').classList.add('open');
+  }
+
+  function hideDeleteChoices() {
+    document.getElementById('popupActions').style.display = 'flex';
+    document.getElementById('deleteChoices').classList.remove('open');
+  }
+
+  function clearSelectedBlocks() {
+    removePendingCellsFromGroups();
+    refreshAll();
+    closePopup();
+  }
+
+  function clearWholeBlocks() {
     pendingCells.forEach(idx => {
       if (blocks[idx]) {
         const gid = blocks[idx].groupId;
@@ -848,6 +880,7 @@
 
   function closePopup() {
     document.getElementById('blockPopup').classList.remove('open');
+    hideDeleteChoices();
     clearSelecting();
     pendingCells = [];
   }
@@ -1160,8 +1193,11 @@
   const _applyBlock = applyBlock;
   applyBlock = function() { _applyBlock(); saveToStorage(); };
 
-  const _clearBlock = clearBlock;
-  clearBlock = function() { _clearBlock(); saveToStorage(); };
+  const _clearSelectedBlocks = clearSelectedBlocks;
+  clearSelectedBlocks = function() { _clearSelectedBlocks(); saveToStorage(); };
+
+  const _clearWholeBlocks = clearWholeBlocks;
+  clearWholeBlocks = function() { _clearWholeBlocks(); saveToStorage(); };
 
   const _saveRoutine = saveRoutine;
   saveRoutine = function() { _saveRoutine(); saveToStorage(); };
